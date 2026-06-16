@@ -1,6 +1,6 @@
 export default function ContentAndPagesPage() {
   return (
-    <s-page heading="Content & pages">
+    <s-page heading="Page builder">
       <s-section heading="Page builder & content tools">
         <s-paragraph>
           This is where the page builder, content editing, and multi-language

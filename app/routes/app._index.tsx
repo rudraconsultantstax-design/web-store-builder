@@ -4,10 +4,15 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 
 import { authenticate } from "../shopify.server";
 
-// Lists the online-store themes installed on the shop. The `role` field marks
-// which theme is live (MAIN) vs. unpublished / development copies.
-const THEMES_QUERY = `#graphql
-  query StoreThemes {
+// Lists the online-store themes installed on the shop and pulls the shop's
+// storefront identity so the SEO checklist below can be computed from real
+// data rather than static placeholders.
+//   - theme.role: MAIN marks the live theme (only one at a time); the rest are
+//     unpublished / demo / development / archived / locked copies.
+//   - shop.primaryDomain: the live storefront domain (host + whether SSL is on).
+//   - shop.description: the store's meta description used in search results.
+const STORE_OVERVIEW_QUERY = `#graphql
+  query StoreThemesAndSeo {
     themes(first: 20) {
       edges {
         node {
@@ -19,32 +24,61 @@ const THEMES_QUERY = `#graphql
         }
       }
     }
+    shop {
+      name
+      description
+      primaryDomain {
+        host
+        url
+        sslEnabled
+      }
+    }
   }`;
+
+// Mirrors the Admin API `ThemeRole` enum (2026-04).
+type ThemeRole =
+  | "MAIN"
+  | "UNPUBLISHED"
+  | "DEMO"
+  | "DEVELOPMENT"
+  | "ARCHIVED"
+  | "LOCKED";
 
 interface ThemeNode {
   id: string;
   name: string;
-  role: string;
+  role: ThemeRole | string;
   createdAt: string;
   updatedAt: string;
 }
 
-interface ThemesResponse {
+interface ShopSeoInfo {
+  name: string;
+  description: string | null;
+  primaryDomain: {
+    host: string;
+    url: string;
+    sslEnabled: boolean;
+  } | null;
+}
+
+interface StoreOverviewResponse {
   data?: {
     themes?: { edges: { node: ThemeNode }[] };
+    shop?: ShopSeoInfo | null;
   };
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
 
-  const response = await admin.graphql(THEMES_QUERY);
-  const body = (await response.json()) as ThemesResponse;
+  const response = await admin.graphql(STORE_OVERVIEW_QUERY);
+  const body = (await response.json()) as StoreOverviewResponse;
+
   const themes = body.data?.themes?.edges.map((edge) => edge.node) ?? [];
+  const shop = body.data?.shop ?? null;
 
-  const hasPublishedTheme = themes.some((theme) => theme.role === "MAIN");
-
-  return { themes, hasPublishedTheme };
+  return { themes, shop };
 };
 
 interface SeoCheck {
@@ -52,6 +86,16 @@ interface SeoCheck {
   description: string;
   done: boolean;
 }
+
+// Badge tone allowed by the Polaris web component <s-badge>.
+type BadgeTone =
+  | "auto"
+  | "neutral"
+  | "info"
+  | "success"
+  | "caution"
+  | "warning"
+  | "critical";
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -72,42 +116,61 @@ function formatRole(role: string): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
-export default function ThemeAndSeo() {
-  const { themes, hasPublishedTheme } = useLoaderData<typeof loader>();
+// Maps a theme role to a human label + badge tone. The live (MAIN) theme is
+// highlighted in success green; everything else is neutral/informational.
+function roleBadge(role: string): { label: string; tone: BadgeTone } {
+  switch (role) {
+    case "MAIN":
+      return { label: "Live", tone: "success" };
+    case "UNPUBLISHED":
+      return { label: "Unpublished", tone: "neutral" };
+    case "DEVELOPMENT":
+      return { label: "Development", tone: "info" };
+    case "DEMO":
+      return { label: "Demo", tone: "info" };
+    case "ARCHIVED":
+      return { label: "Archived", tone: "neutral" };
+    case "LOCKED":
+      return { label: "Locked", tone: "warning" };
+    default:
+      return { label: formatRole(role), tone: "neutral" };
+  }
+}
 
-  // Static SEO readiness checklist. The "live theme" item reflects real store
-  // data; the rest are starter placeholders to wire up as the SEO tooling is
-  // built out.
+export default function ThemeAndSeo() {
+  const { themes, shop } = useLoaderData<typeof loader>();
+
+  const mainTheme = themes.find((theme) => theme.role === "MAIN") ?? null;
+  const primaryDomain = shop?.primaryDomain ?? null;
+
+  // SEO readiness checklist. Every item is computed from live Admin API data so
+  // the score reflects the store's actual configuration. Wire up further items
+  // here as more SEO settings become queryable.
   const seoChecks: SeoCheck[] = [
     {
       label: "A published (live) theme exists",
       description:
-        "Your storefront needs an active theme before SEO settings can take effect.",
-      done: hasPublishedTheme,
+        "Your storefront needs an active (MAIN) theme before SEO settings can take effect.",
+      done: mainTheme !== null,
     },
     {
-      label: "Homepage title & meta description set",
-      description:
-        "Set a unique title tag and meta description for the homepage in Online Store › Preferences.",
-      done: false,
+      label: "Primary storefront domain configured",
+      description: primaryDomain
+        ? `Live at ${primaryDomain.host}. Search engines index this domain.`
+        : "Set a primary domain in Settings › Domains so search engines have a canonical address to index.",
+      done: primaryDomain !== null,
     },
     {
-      label: "Social sharing image configured",
+      label: "HTTPS / SSL enabled on the primary domain",
       description:
-        "Add an Open Graph / social sharing image so shared links render with a preview.",
-      done: false,
+        "Secure (HTTPS) storefronts are required for trust signals and rank better in search.",
+      done: primaryDomain?.sslEnabled === true,
     },
     {
-      label: "Sitemap submitted to search engines",
+      label: "Store meta description set",
       description:
-        "Submit /sitemap.xml to Google Search Console and Bing Webmaster Tools.",
-      done: false,
-    },
-    {
-      label: "Alt text added to key images",
-      description:
-        "Descriptive alt text improves accessibility and image search ranking.",
-      done: false,
+        "Add a store meta description in Online Store › Preferences so search results show a compelling summary.",
+      done: Boolean(shop?.description && shop.description.trim().length > 0),
     },
   ];
 
@@ -135,18 +198,19 @@ export default function ThemeAndSeo() {
               <s-table-header>Last updated</s-table-header>
             </s-table-header-row>
             <s-table-body>
-              {themes.map((theme) => (
-                <s-table-row key={theme.id}>
-                  <s-table-cell>{theme.name}</s-table-cell>
-                  <s-table-cell>
-                    <s-badge>
-                      {theme.role === "MAIN" ? "Live" : formatRole(theme.role)}
-                    </s-badge>
-                  </s-table-cell>
-                  <s-table-cell>{formatDate(theme.createdAt)}</s-table-cell>
-                  <s-table-cell>{formatDate(theme.updatedAt)}</s-table-cell>
-                </s-table-row>
-              ))}
+              {themes.map((theme) => {
+                const badge = roleBadge(theme.role);
+                return (
+                  <s-table-row key={theme.id}>
+                    <s-table-cell>{theme.name}</s-table-cell>
+                    <s-table-cell>
+                      <s-badge tone={badge.tone}>{badge.label}</s-badge>
+                    </s-table-cell>
+                    <s-table-cell>{formatDate(theme.createdAt)}</s-table-cell>
+                    <s-table-cell>{formatDate(theme.updatedAt)}</s-table-cell>
+                  </s-table-row>
+                );
+              })}
             </s-table-body>
           </s-table>
         )}
@@ -154,15 +218,16 @@ export default function ThemeAndSeo() {
 
       <s-section heading={`SEO readiness (${completed}/${seoChecks.length})`}>
         <s-paragraph>
-          A quick checklist of storefront SEO essentials. These are starter
-          items — connect each one to live settings as the SEO tools are built
-          out.
+          A checklist of storefront SEO essentials, computed from your live store
+          settings. Resolve any “To do” items to improve search visibility.
         </s-paragraph>
         <s-stack direction="block" gap="base">
           {seoChecks.map((check) => (
             <s-stack key={check.label} direction="block" gap="small-300">
               <s-stack direction="inline" gap="base">
-                <s-badge>{check.done ? "Done" : "To do"}</s-badge>
+                <s-badge tone={check.done ? "success" : "caution"}>
+                  {check.done ? "Done" : "To do"}
+                </s-badge>
                 <s-text type="strong">{check.label}</s-text>
               </s-stack>
               <s-text tone="neutral">{check.description}</s-text>
@@ -171,7 +236,23 @@ export default function ThemeAndSeo() {
         </s-stack>
       </s-section>
 
-      <s-section slot="aside" heading="About this app">
+      <s-section slot="aside" heading="Storefront">
+        {shop ? (
+          <s-stack direction="block" gap="small-300">
+            <s-text type="strong">{shop.name}</s-text>
+            {primaryDomain ? (
+              <s-link href={primaryDomain.url} target="_blank">
+                {primaryDomain.host}
+              </s-link>
+            ) : (
+              <s-text tone="neutral">No primary domain set</s-text>
+            )}
+          </s-stack>
+        ) : (
+          <s-paragraph>
+            <s-text tone="neutral">Storefront details unavailable.</s-text>
+          </s-paragraph>
+        )}
         <s-paragraph>
           Web Store builder helps you customize themes, build pages, manage
           multi-language content, and improve SEO &amp; conversion for your

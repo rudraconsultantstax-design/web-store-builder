@@ -19,7 +19,8 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Theme &amp; SEO</s-link>
-        <s-link href="/app/additional">Content &amp; pages</s-link>
+        <s-link href="/app/content">Content &amp; pages</s-link>
+        <s-link href="/app/additional">Page builder</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>
