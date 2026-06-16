@@ -1,0 +1,40 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+# Placeholder — `shopify app config link` (or `npm run config:link`) writes the
+# real Client ID for the Web Store builder app into this field. Do NOT commit a
+# real Client ID by hand.
+client_id = "REPLACE_WITH_WEB_STORE_BUILDER_CLIENT_ID"
+application_url = "https://webstore.baisajaipur.in"
+embedded = true
+name = "web-store-builder"
+
+[access_scopes]
+# Theme / SEO / content app scopes. Learn more at
+# https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_themes,write_themes,read_content,write_content,read_online_store_pages,write_online_store_pages,read_translations,write_translations,read_markets,read_marketing_events,write_marketing_events,write_script_tags"
+use_legacy_install_flow = false
+
+[webhooks]
+api_version = "2026-04"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+[app_preferences]
+url = "https://webstore.baisajaipur.in/preferences"
+
+[auth]
+redirect_urls = [
+  "https://webstore.baisajaipur.in/auth/callback",
+  "https://webstore.baisajaipur.in/auth/shopify/callback",
+  "https://webstore.baisajaipur.in/api/auth/callback"
+]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
