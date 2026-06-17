@@ -25,6 +25,23 @@ api_version = "2026-04"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
+  # Mandatory GDPR / compliance webhooks. Shopify requires these for every app.
+  # The CLI also auto-registers the topics on `shopify app deploy`; declaring
+  # them here makes the URIs explicit and routes them to the handlers in
+  # app/routes/webhooks.app.customers_data_request.tsx, customers_redact.tsx,
+  # and shop_redact.tsx.
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/customers_data_request"
+  topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/customers_redact"
+  topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/shop_redact"
+  topics = [ "shop/redact" ]
+
 [app_preferences]
 url = "https://webstore.baisajaipur.in/preferences"
 
